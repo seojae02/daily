@@ -26,7 +26,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           source: "daily-alley.tar"
-          target: "/home/iubns/gdgc"
+          target: "/home/ec2-user/ai"
 
       - name: Load Docker image and deploy
         uses: appleboy/ssh-action@v0.1.6
@@ -38,7 +38,7 @@ jobs:
             docker stop daily-alley-container || true
             docker rm daily-alley-container || true
             docker rmi daily-alley:latest || true
-            docker load -i /home/iubns/gdgc/daily-alley.tar
+            docker load -i /home/ec2-user/ai/daily-alley.tar
             docker run -d --name daily-alley-container -p 8000:8000 \
               -e GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }} \
               -e GEMINI_MODEL=${{ secrets.GEMINI_MODEL }} \
