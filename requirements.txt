@@ -1,3 +1,4 @@
+python-multipart
 transformers
 onnxruntime
 # 프로젝트 실행에 필요한 패키지
