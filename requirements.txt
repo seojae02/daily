@@ -1,0 +1,11 @@
+transformers
+onnxruntime
+# 프로젝트 실행에 필요한 패키지
+requests
+fastapi
+python-dotenv
+pillow
+google-generativeai
+torch
+diffusers
+rembg
