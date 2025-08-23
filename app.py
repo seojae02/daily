@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes_promo import router as promo_router
 from routes_ad_image import router as ad_image_router
+from openai_seojae import router as outpaint_router
 
 app = FastAPI(
     title="Promo & Ad Image Generator (FastAPI)",
@@ -38,3 +39,4 @@ def index():
 
 app.include_router(promo_router)
 # app.include_router(ad_image_router)
+app.include_router(outpaint_router)

@@ -1,3 +1,6 @@
+from fastapi import APIRouter, UploadFile, Form
+from fastapi.responses import FileResponse
+import tempfile
 import os
 from dotenv import load_dotenv
 from PIL import Image
@@ -129,32 +132,32 @@ def outpaint_image(input_path, user_prompt_kr, output_path, target_size=1024, ta
     print(f"\n✅ 작업 완료! '{output_path}' 경로에 이미지가 저장되었습니다.")
 
 # -----------------------------
+# -----------------------------
 # 3) 메인 실행 부분
 # -----------------------------
-if __name__ == "__main__":
-    input_image = input("▶️ 원본 이미지 경로를 입력하세요: ")
-    user_prompt = input("▶️ 채우고 싶은 배경 컨셉을 한글로 편하게 입력하세요: ")
-    
-    ratio_str = input("▶️ 원하는 사진 비율을 입력하세요 (예: 1:1, 4:5, 16:9): ")
-    try:
-        w, h = map(int, ratio_str.split(":"))
-        ratio = w / h
-    except ValueError:
-        print("⚠️ 비율 형식이 잘못되었습니다. 기본값 1:1 (정사각형)으로 설정합니다.")
-        ratio = 1.0
 
-    size_input = input("▶️ 생성할 이미지의 긴 변 기준 크기를 입력하세요 (256, 512, 1024): ")
-    try:
-        size = int(size_input)
-        if size not in [256, 512, 1024]:
-            print("⚠️ 크기는 256, 512, 1024 중 하나여야 합니다. 기본값 1024로 설정합니다.")
-            size = 1024
-    except ValueError:
-        print("⚠️ 잘못된 크기입니다. 기본값 1024로 설정합니다.")
-        size = 1024
+# FastAPI 라우터 추가
+router = APIRouter()
 
-    base_name = os.path.basename(input_image)
-    name_without_ext = os.path.splitext(base_name)[0]
-    output_file = f"outpainted_{name_without_ext}.jpg"
-    
-    outpaint_image(input_image, user_prompt, output_file, target_size=size, target_ratio=ratio)
+@router.post("/v1/outpaint")
+async def outpaint_endpoint(
+    input_image: UploadFile = Form(...),
+    user_prompt: str = Form(...),
+    ratio: str = Form("1:1"),
+    size: int = Form(1024)
+):
+    # 임시 파일로 저장
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_in:
+        temp_in.write(await input_image.read())
+        temp_in_path = temp_in.name
+
+    try:
+        w, h = map(int, ratio.split(":"))
+        target_ratio = w / h
+    except Exception:
+        target_ratio = 1.0
+
+    output_path = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False).name
+
+    outpaint_image(temp_in_path, user_prompt, output_path, target_size=size, target_ratio=target_ratio)
+    return FileResponse(output_path, media_type="image/jpeg")
