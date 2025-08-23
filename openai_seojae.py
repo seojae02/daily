@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, Form
+from fastapi import APIRouter, UploadFile, Form, File
 from fastapi.responses import FileResponse
 import tempfile
 import os
@@ -141,10 +141,10 @@ router = APIRouter()
 
 @router.post("/v1/outpaint")
 async def outpaint_endpoint(
-    input_image: UploadFile = Form(...),
-    user_prompt: str = Form(...),
-    ratio: str = Form("1:1"),
-    size: int = Form(1024)
+    input_image: UploadFile = File(..., description="기준 이미지(PNG/JPG)"),
+    user_prompt: str = Form(..., description="배경 컨셉 설명(자연어, 한국어 OK)"),
+    ratio: str = Form("1:1", description="예: 1:1, 4:5, 16:9"),
+    size: int = Form(1024, description="짧은 변 기준 크기")
 ):
     # 임시 파일로 저장
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_in:
