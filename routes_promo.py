@@ -5,6 +5,7 @@ import requests
 import json
 from config import GEMINI_API_KEY, GEMINI_ENDPOINT, MODEL_ID
 from utils import build_promo_prompt, files_to_inline_parts
+from utils import build_promo_prompt, files_to_inline_parts, format_body_with_newlines_and_images
 
 router = APIRouter()
 
@@ -21,12 +22,18 @@ def generate_promo(
     language: str = Form("ko"),
     store_images: Optional[List[UploadFile]] = File(None),
     food_images: Optional[List[UploadFile]] = File(None),
+    image_urls: Optional[List[str]] = Form(None),
 ):
     if debug == 1:
+        demo_body = (
+            "디버그 응답입니다. 엔드포인트 연결만 점검합니다. "
+            "줄바꿈과 이미지 URL 삽입 테스트 문장입니다!"
+        )
+        demo_body = format_body_with_newlines_and_images(demo_body, image_urls)
         return JSONResponse({
             "variants": [{
                 "headline": f"{store_name} — {mood} 톤",
-                "body": "디버그 응답입니다. 엔드포인트 연결만 점검합니다.",
+                "body": demo_body,
                 "tags": ["#debug", "#fastapi"],
                 "cta": "지금 바로 방문해 보세요",
             }]
@@ -71,11 +78,20 @@ def generate_promo(
         raw = raw.strip("`")
         if raw.lower().startswith("json"):
             raw = raw[4:].strip()
-
     try:
         parsed = json.loads(raw)
         if not isinstance(parsed, dict) or "variants" not in parsed:
             raise ValueError("variants 키 없음")
+
+        # 🔧 본문 포맷팅: 문장별 줄바꿈 + 이미지 URL 균등 삽입
+        if isinstance(parsed.get("variants"), list):
+            for v in parsed["variants"]:
+                if isinstance(v, dict) and "body" in v:
+                    v["body"] = format_body_with_newlines_and_images(
+                        v.get("body", ""), image_urls
+                    )
+
         return JSONResponse(parsed)
     except Exception:
         return JSONResponse({"raw": raw})
+
