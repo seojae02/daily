@@ -37,4 +37,4 @@ def index():
     }
 
 app.include_router(promo_router)
-app.include_router(ad_image_router)
+# app.include_router(ad_image_router)

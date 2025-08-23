@@ -4,6 +4,7 @@ import json
 from typing import List, Optional, Tuple
 from fastapi import UploadFile
 from PIL import Image, ImageOps, ImageStat, ImageDraw, ImageFont
+import re
 
 def files_to_inline_parts(files: Optional[List[UploadFile]]) -> List[dict]:
     parts: List[dict] = []
@@ -49,7 +50,7 @@ def build_promo_prompt(language: str, mood: str, store_name: str, store_descript
   "variants": [
     {{
       "headline": "짧은 한 줄 헤드라인",
-      "body": "2~4문장 본문. 매장/메뉴 특징과 위치 맥락을 반영.",
+      "body": "2~4문장 본문. 매장/메뉴 특징과 위치 맥락을 반영. 각 문장이 끝날때마다 \\n 추가하기.",
       "tags": ["#해시태그", "#지역", "#메뉴"],
       "cta": "방문/예약/주문을 유도하는 한 문장"
     }}
@@ -128,3 +129,39 @@ def parse_ratio_and_size(ratio: Optional[str], base_size: Optional[int]) -> Tupl
     target_width -= (target_width % 8)
     target_height -= (target_height % 8)
     return target_width, target_height
+
+def format_body_with_newlines_and_images(text: str, image_urls: Optional[List[str]]) -> str:
+    """
+    본문을 문장 단위로 줄바꿈(\n)으로 연결하고,
+    문장 사이에 전달받은 image_urls를 '균등 간격'으로 삽입한다.
+    삽입 형식은 URL을 줄 단위로 그대로 추가.
+    """
+    if not text:
+        return ""
+    s = str(text).strip()
+
+    # 마침표/물음표/느낌표/한중일 마침부호 + 공백 또는 기존 개행 기준으로 분리
+    sentences = [t.strip() for t in re.split(r'(?<=[.!?。！？])\s+|\n+', s) if t.strip()]
+    if not sentences:
+        sentences = [s]
+
+    n = len(sentences)
+    urls = [u for u in (image_urls or []) if u]
+    m = len(urls)
+
+    # 문장 인덱스(1..n) 사이에 균등 분배해서 넣는다.
+    # n>1이면 1..(n-1) 사이 위치에만 삽입(문장과 문장 사이)
+    insert_map = {}
+    if n > 0 and m > 0:
+        for i, url in enumerate(urls):
+            pos = (i + 1) * (n + 1) // (m + 1)  # 1..n
+            pos = min(max(1, pos), n - 1) if n > 1 else 1
+            insert_map.setdefault(pos, []).append(url)
+
+    lines: List[str] = []
+    for idx, sent in enumerate(sentences, start=1):
+        lines.append(sent)
+        if idx in insert_map:
+            lines.extend(insert_map[idx])
+
+    return "\n".join(lines)
