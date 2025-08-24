@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from routes_promo import router as promo_router
-from routes_ad_image import router as ad_image_router
 from openai_seojae import router as outpaint_router
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
     title="Promo & Ad Image Generator (FastAPI)",
@@ -37,6 +37,8 @@ def index():
         "docs": "/docs",
     }
 
+
+app.mount("/images", StaticFiles(directory="/home/ec2-user/BE/img"), name="images")
 app.include_router(promo_router)
 # app.include_router(ad_image_router)
 app.include_router(outpaint_router)
