@@ -1,36 +1,12 @@
 import base64
 import io
 import json
-import os
 from typing import List, Optional, Tuple
 from fastapi import UploadFile
 from PIL import Image, ImageOps, ImageStat, ImageDraw, ImageFont
 import re
+import os
 
-# --------------------------
-# 새로 추가: 서버 경로 이미지를 inlineData로
-# --------------------------
-def image_file_to_inline_part(path: str) -> Optional[dict]:
-    """
-    경로의 이미지를 Gemini API용 inlineData로 변환. 없으면 None 반환.
-    """
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-        return {
-            "inlineData": {
-                "data": base64.b64encode(data).decode("utf-8"),
-                "mimeType": "image/jpeg",
-            }
-        }
-    except Exception:
-        return None
-
-# --------------------------
-# (기존) 업로드 파일을 inlineData로 — 필요 없다면 미사용 상태로 둠
-# --------------------------
 def files_to_inline_parts(files: Optional[List[UploadFile]]) -> List[dict]:
     parts: List[dict] = []
     if not files:
@@ -47,6 +23,30 @@ def files_to_inline_parts(files: Optional[List[UploadFile]]) -> List[dict]:
             "inlineData": {
                 "data": base64.b64encode(data).decode("utf-8"),
                 "mimeType": mime,
+            }
+        })
+    return parts
+
+def filepaths_to_inline_parts(paths: Optional[List[str]]) -> List[dict]:
+    """
+    로컬 파일 경로 리스트를 Gemini inlineData parts로 변환.
+    파일이 없으면 건너뜀.
+    """
+    parts: List[dict] = []
+    if not paths:
+        return parts
+    for p in paths:
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            with open(p, "rb") as f:
+                data = f.read()
+        except Exception:
+            continue
+        parts.append({
+            "inlineData": {
+                "data": base64.b64encode(data).decode("utf-8"),
+                "mimeType": "image/jpeg",
             }
         })
     return parts
@@ -68,7 +68,7 @@ def build_promo_prompt(language: str, mood: str, store_name: str, store_descript
 - 톤/무드: {mood}
 - 설명: {store_description or "없음"}
 - {loc_line}
-- 첨부 이미지: 매장/메뉴 사진 (문맥에 자연스럽게 반영)
+- 첨부 이미지: 최근 생성된 음식/매장 이미지를 문맥에 자연스럽게 반영 (이미지 없으면 텍스트만)
 
 반환 형식 (JSON만, 코드펜스/문장 금지)
 {{
@@ -156,37 +156,24 @@ def parse_ratio_and_size(ratio: Optional[str], base_size: Optional[int]) -> Tupl
     return target_width, target_height
 
 def format_body_with_newlines_and_images(text: str, image_urls: Optional[List[str]]) -> str:
-    """
-    본문을 문장 단위로 줄바꿈(\n)으로 연결하고,
-    문장 사이에 전달받은 image_urls를 '균등 간격'으로 삽입한다.
-    삽입 형식은 URL을 줄 단위로 그대로 추가.
-    """
     if not text:
         return ""
     s = str(text).strip()
-
-    # 마침표/물음표/느낌표/한중일 마침부호 + 공백 또는 기존 개행 기준으로 분리
     sentences = [t.strip() for t in re.split(r'(?<=[.!?。！？])\s+|\n+', s) if t.strip()]
     if not sentences:
         sentences = [s]
-
     n = len(sentences)
     urls = [u for u in (image_urls or []) if u]
     m = len(urls)
-
-    # 문장 인덱스(1..n) 사이에 균등 분배해서 넣는다.
-    # n>1이면 1..(n-1) 사이 위치에만 삽입(문장과 문장 사이)
     insert_map = {}
     if n > 0 and m > 0:
         for i, url in enumerate(urls):
             pos = (i + 1) * (n + 1) // (m + 1)  # 1..n
             pos = min(max(1, pos), n - 1) if n > 1 else 1
             insert_map.setdefault(pos, []).append(url)
-
     lines: List[str] = []
     for idx, sent in enumerate(sentences, start=1):
         lines.append(sent)
         if idx in insert_map:
             lines.extend(insert_map[idx])
-
     return "\n".join(lines)
