@@ -1,11 +1,36 @@
 import base64
 import io
 import json
+import os
 from typing import List, Optional, Tuple
 from fastapi import UploadFile
 from PIL import Image, ImageOps, ImageStat, ImageDraw, ImageFont
 import re
 
+# --------------------------
+# 새로 추가: 서버 경로 이미지를 inlineData로
+# --------------------------
+def image_file_to_inline_part(path: str) -> Optional[dict]:
+    """
+    경로의 이미지를 Gemini API용 inlineData로 변환. 없으면 None 반환.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        return {
+            "inlineData": {
+                "data": base64.b64encode(data).decode("utf-8"),
+                "mimeType": "image/jpeg",
+            }
+        }
+    except Exception:
+        return None
+
+# --------------------------
+# (기존) 업로드 파일을 inlineData로 — 필요 없다면 미사용 상태로 둠
+# --------------------------
 def files_to_inline_parts(files: Optional[List[UploadFile]]) -> List[dict]:
     parts: List[dict] = []
     if not files:
