@@ -21,6 +21,9 @@ try:
 except KeyError as e:
     raise SystemExit(f"{e.args[0]}를 .env 파일에서 찾을 수 없습니다. 파일을 확인해주세요.")
 
+# 마운트된 서버 저장 디렉터리 (없으면 기본값)
+IMG_DIR = os.getenv("IMAGE_DIR", "/home/ec2-user/BE/img")
+
 # -----------------------------
 # 유틸: 프롬프트 길이/공백 정리
 # -----------------------------
@@ -31,6 +34,27 @@ def _clamp_prompt(p: str, maxlen: int = 950) -> str:
     """
     p = re.sub(r"\s+", " ", (p or "")).strip()
     return p[:maxlen].rstrip()
+
+def _ensure_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+
+def _next_index(save_dir: str) -> int:
+    """
+    save_dir 안의 파일들 중 `(\d+)_food(.AI)?\.jpg` 패턴을 찾아
+    가장 큰 번호 + 1을 반환. 없으면 1.
+    """
+    pat = re.compile(r"^(\d+)_food(_AI)?\.jpg$", re.IGNORECASE)
+    max_n = 0
+    try:
+        for name in os.listdir(save_dir):
+            m = pat.match(name)
+            if m:
+                n = int(m.group(1))
+                if n > max_n:
+                    max_n = n
+    except FileNotFoundError:
+        pass
+    return max_n + 1
 
 # -----------------------------
 # 2) 이미지 아웃페인팅 함수
@@ -65,7 +89,7 @@ def outpaint_image(input_path, user_prompt_kr, output_path, target_size=1024, ta
         print(f"⚠️ Gemini 오류: {e}")
         generated_prompt_en = f"A minimalist food photo with: {user_prompt_kr}"
 
-    # ★ 프롬프트 길이 제한 적용 (1000자 ↓, 안전하게 950자)
+    # 프롬프트 길이 제한 적용
     generated_prompt_en = _clamp_prompt(generated_prompt_en, 950)
     print(f"📝 Final prompt length: {len(generated_prompt_en)}")
 
@@ -132,23 +156,46 @@ async def outpaint_endpoint(
     input_image: UploadFile = File(..., description="이미지 파일(PNG/JPG)"),
     user_prompt: str = Form(..., description="배경 컨셉 설명(자연어, 한국어 OK)"),
     ratio: str = Form("1:1", description="예: 1:1, 4:5, 16:9"),
-    size: int = Form(1024, description="짧은 변 기준 크기")
+    size: int = Form(1024, description="짧은 변 기준 크기"),
 ):
-    import tempfile
-    # 임시 파일로 저장
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_in:
-        temp_in.write(await input_image.read())
-        input_path = temp_in.name
+    """
+    - 업로드 원본 저장: {IMG_DIR}/{N}_food.jpg
+    - 결과 저장: {IMG_DIR}/{N}_food_AI.jpg
+    - N은 폴더 내 기존 번호들 중 최대값+1
+    """
+    _ensure_dir(IMG_DIR)
 
+    # 다음 인덱스 계산
+    n = _next_index(IMG_DIR)
+    base_name = f"{n}_food"
+    input_path  = os.path.join(IMG_DIR, f"{base_name}.jpg")
+    output_path = os.path.join(IMG_DIR, f"{base_name}_AI.jpg")  # == {n}_food_AI.jpg
+
+    # 업로드 원본을 서버(마운트 경로)에 저장
+    try:
+        # 파일 확장자 상관없이 JPEG로 강제 저장(통일)
+        img = Image.open(input_image.file).convert("RGB")
+        img.save(input_path, "JPEG", quality=95)
+        print(f"✅ 업로드 저장 완료 → {input_path}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"업로드 이미지를 저장할 수 없습니다: {e}")
+
+    # 비율 파싱
     try:
         w, h = map(int, ratio.split(":"))
         target_ratio = w / h
     except Exception:
         target_ratio = 1.0
 
-    # 출력 파일명: {임시파일명}_food_AI.jpg
-    output_path = input_path.replace(".jpg", "_food_AI.jpg")
+    # 생성 (입력: {n}_food.jpg → 출력: {n}_food_AI.jpg)
+    try:
+        outpaint_image(input_path, user_prompt, output_path, target_size=size, target_ratio=target_ratio)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"아웃페인트 처리 중 오류: {e}")
 
-    outpaint_image(input_path, user_prompt, output_path, target_size=size, target_ratio=target_ratio)
+    # 결과 확인
+    if not os.path.exists(output_path):
+        raise HTTPException(status_code=502, detail="아웃페인트 결과 파일이 생성되지 않았습니다.")
 
+    # 생성물 반환 (필요 시 nginx /images/ 에서 URL로 바로 접근 가능)
     return FileResponse(output_path, media_type="image/jpeg", filename=os.path.basename(output_path))
