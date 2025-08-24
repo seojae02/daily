@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Form, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import os
+import re
 from dotenv import load_dotenv
 from PIL import Image
 from openai import OpenAI
@@ -19,6 +20,17 @@ try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 except KeyError as e:
     raise SystemExit(f"{e.args[0]}를 .env 파일에서 찾을 수 없습니다. 파일을 확인해주세요.")
+
+# -----------------------------
+# 유틸: 프롬프트 길이/공백 정리
+# -----------------------------
+def _clamp_prompt(p: str, maxlen: int = 950) -> str:
+    """
+    DALL·E 프롬프트는 1000자 제한 → 안전하게 950자로 클램프.
+    연속 공백/개행을 한 칸으로 정리한 뒤 자른다.
+    """
+    p = re.sub(r"\s+", " ", (p or "")).strip()
+    return p[:maxlen].rstrip()
 
 # -----------------------------
 # 2) 이미지 아웃페인팅 함수
@@ -48,10 +60,14 @@ def outpaint_image(input_path, user_prompt_kr, output_path, target_size=1024, ta
     try:
         gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
         response = gemini_model.generate_content(prompt_instruction)
-        generated_prompt_en = response.text.strip() or f"A minimalist food photo with: {user_prompt_kr}"
+        generated_prompt_en = (response.text or "").strip() or f"A minimalist food photo with: {user_prompt_kr}"
     except Exception as e:
         print(f"⚠️ Gemini 오류: {e}")
         generated_prompt_en = f"A minimalist food photo with: {user_prompt_kr}"
+
+    # ★ 프롬프트 길이 제한 적용 (1000자 ↓, 안전하게 950자)
+    generated_prompt_en = _clamp_prompt(generated_prompt_en, 950)
+    print(f"📝 Final prompt length: {len(generated_prompt_en)}")
 
     # --- 배경 제거 ---
     try:
