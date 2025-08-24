@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Form, HTTPException
+from fastapi import APIRouter, Form, File, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import os
 from dotenv import load_dotenv
@@ -113,16 +113,16 @@ router = APIRouter()
 
 @router.post("/v1/outpaint")
 async def outpaint_endpoint(
-    identifier: str = Form(..., description="이미지 식별자 (ex: abc123)"),
+    input_image: UploadFile = File(..., description="이미지 파일(PNG/JPG)"),
     user_prompt: str = Form(..., description="배경 컨셉 설명(자연어, 한국어 OK)"),
     ratio: str = Form("1:1", description="예: 1:1, 4:5, 16:9"),
     size: int = Form(1024, description="짧은 변 기준 크기")
 ):
-    img_dir = "/home/ec2-user/BE/img"
-    input_path = os.path.join(img_dir, f"{identifier}.jpg")
-
-    if not os.path.exists(input_path):
-        raise HTTPException(status_code=404, detail=f"이미지 파일을 찾을 수 없습니다: {input_path}")
+    import tempfile
+    # 임시 파일로 저장
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_in:
+        temp_in.write(await input_image.read())
+        input_path = temp_in.name
 
     try:
         w, h = map(int, ratio.split(":"))
@@ -130,9 +130,9 @@ async def outpaint_endpoint(
     except Exception:
         target_ratio = 1.0
 
-    # 출력 파일명: {식별자}_food_AI.jpg
-    output_path = os.path.join(img_dir, f"{identifier}_food_AI.jpg")
+    # 출력 파일명: {임시파일명}_food_AI.jpg
+    output_path = input_path.replace(".jpg", "_food_AI.jpg")
 
     outpaint_image(input_path, user_prompt, output_path, target_size=size, target_ratio=target_ratio)
 
-    return FileResponse(output_path, media_type="image/jpeg", filename=f"{identifier}_food_AI.jpg")
+    return FileResponse(output_path, media_type="image/jpeg", filename=os.path.basename(output_path))
