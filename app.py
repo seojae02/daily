@@ -10,13 +10,13 @@ app = FastAPI(
     description="Gemini REST/SDK + SD Inpaint + rembg 조합 백엔드",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=True,
-)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=["*"],
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+#     allow_credentials=True,
+# )
 
 @app.get("/health")
 def health():
