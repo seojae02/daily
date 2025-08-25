@@ -28,10 +28,6 @@ def files_to_inline_parts(files: Optional[List[UploadFile]]) -> List[dict]:
     return parts
 
 def filepaths_to_inline_parts(paths: Optional[List[str]]) -> List[dict]:
-    """
-    로컬 파일 경로 리스트를 Gemini inlineData parts로 변환.
-    파일이 없으면 건너뜀.
-    """
     parts: List[dict] = []
     if not paths:
         return parts
@@ -68,14 +64,14 @@ def build_promo_prompt(language: str, mood: str, store_name: str, store_descript
 - 톤/무드: {mood}
 - 설명: {store_description or "없음"}
 - {loc_line}
-- 첨부 이미지: 최근 생성된 음식/매장 이미지를 문맥에 자연스럽게 반영 (이미지 없으면 텍스트만)
+- 첨부 이미지: 최근 생성된 음식(가공본)과 매장 이미지를 문맥에 자연스럽게 반영 (이미지 없으면 텍스트만)
 
 반환 형식 (JSON만, 코드펜스/문장 금지)
 {{
   "variants": [
     {{
       "headline": "짧은 한 줄 헤드라인",
-      "body": "2~4문장 본문. 매장/메뉴 특징과 위치 맥락을 반영. 각 문장이 끝날때마다 \\n 추가하기.",
+      "body": "6~8문장 본문. 매장/메뉴 특징과 위치 맥락을 반영. 각 문장이 끝날때마다 \\n 추가하기.",
       "tags": ["#해시태그", "#지역", "#메뉴"],
       "cta": "방문/예약/주문을 유도하는 한 문장"
     }}
