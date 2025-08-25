@@ -1,9 +1,6 @@
 # openai_seojae.py
-
-import os
-import re
+import os, re
 from io import BytesIO
-
 from dotenv import load_dotenv
 from PIL import Image
 from rembg import remove
@@ -13,9 +10,6 @@ from fastapi import APIRouter, Form, File, UploadFile, HTTPException, Response
 from openai import OpenAI
 import google.generativeai as genai
 
-# -----------------------------
-# 1) 환경 설정
-# -----------------------------
 load_dotenv(".env")
 
 try:
@@ -24,88 +18,67 @@ try:
 except KeyError as e:
     raise SystemExit(f"{e.args[0]}를 .env 파일에서 찾을 수 없습니다. 파일을 확인해주세요.")
 
-# 서버에 이미지를 저장할 디렉터리 (컨테이너 실행 시 -e IMAGE_DIR=... 로 덮어쓰기 가능)
-IMG_DIR = os.getenv("IMAGE_DIR", "generated_images")
+# 루트 저장 경로(마운트): /home/ec2-user/BE/img
+IMAGE_ROOT = os.getenv("IMAGE_DIR", "/home/ec2-user/BE/img")
+FOOD_DIR   = os.path.join(IMAGE_ROOT, "food")   # 음식 관련 저장소
+STORE_DIR  = os.path.join(IMAGE_ROOT, "store")  # 가게 이미지 저장소 (참고용)
 
+def _ensure_dir(p: str) -> None:
+    os.makedirs(p, exist_ok=True)
 
-# -----------------------------
-# 2) 유틸리티 함수
-# -----------------------------
 def _clamp_prompt(p: str, maxlen: int = 950) -> str:
-    """프롬프트를 1000자 제한 이하로 클램프"""
     p = re.sub(r"\s+", " ", (p or "")).strip()
     return p[:maxlen].rstrip()
 
-
-def _ensure_dir(path: str) -> None:
-    """디렉터리가 없으면 생성"""
-    os.makedirs(path, exist_ok=True)
-
-
-def _next_index(save_dir: str) -> int:
-    """폴더 내에서 (N)_food(.AI).jpg 패턴을 스캔해 다음 번호를 리턴"""
+def _next_food_index() -> int:
+    """
+    FOOD_DIR 안의 파일 중 ^(\d+)_food(_AI)?\.jpg 의 최대 번호 + 1
+    """
+    _ensure_dir(FOOD_DIR)
     pat = re.compile(r"^(\d+)_food(_AI)?\.jpg$", re.IGNORECASE)
     max_n = 0
-    try:
-        for name in os.listdir(save_dir):
-            m = pat.match(name)
-            if m:
-                n = int(m.group(1))
-                if n > max_n:
-                    max_n = n
-    except FileNotFoundError:
-        pass
+    for name in os.listdir(FOOD_DIR):
+        m = pat.match(name)
+        if m:
+            max_n = max(max_n, int(m.group(1)))
     return max_n + 1
 
-
-# -----------------------------
-# 3) 이미지 아웃페인팅 함수
-# -----------------------------
 def outpaint_image(input_path, user_prompt_kr, output_path, target_size=1024, target_ratio=1.0):
-    """이미지 아웃페인팅 전체 파이프라인"""
     temp_canvas_path = "temp_canvas_for_api.png"
-
-    # 입력 이미지 열기
     try:
         img = Image.open(input_path)
     except Exception as e:
         print(f"❌ 입력 이미지 오류: {e}")
         return
 
-    # Gemini 프롬프트 강화
     prompt_instruction = f"""
     You are a professional food photographer and a DALL-E prompt expert.
     Translate the Korean request into a vivid English prompt for an image outpainting task.
-    Minimalist, clean, ONLY the main food item, plain background. 
-    No other objects, no cutlery, no side dishes.
+    VERY IMPORTANT: The user wants a minimalist scene. Your prompt MUST explicitly command to exclude other objects. Use strong negative keywords like "Minimalist, clean, no other objects, no cutlery, no spoons, no forks, no clutter, plain background."
+    Crucially, the final English prompt must be under 1000 characters.
     Korean Request: "{user_prompt_kr}"
     """
     try:
         gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
         resp = gemini_model.generate_content(prompt_instruction)
-        generated_prompt_en = (resp.text or "").strip()
-        if not generated_prompt_en:
-            raise ValueError("Gemini returned empty")
+        generated_prompt_en = (resp.text or "").strip() or "Minimalist food photo, no other objects, plain background."
     except Exception as e:
         print(f"⚠️ Gemini 오류: {e}")
-        generated_prompt_en = f"A minimalist food photo with {user_prompt_kr}, no other objects, plain background."
+        generated_prompt_en = "Minimalist food photo, no other objects, plain background."
     generated_prompt_en = _clamp_prompt(generated_prompt_en)
 
-    # 배경 제거
     try:
         img_no_bg = remove(img)
     except Exception as e:
         print(f"⚠️ 배경 제거 오류: {e}")
         return
 
-    # 피사체 축소 후 캔버스 배치
-    scale_factor = 0.6
-    img_no_bg.thumbnail((int(target_size * scale_factor), int(target_size * scale_factor)), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
+    scale = 0.6
+    img_no_bg.thumbnail((int(target_size*scale), int(target_size*scale)), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (target_size, target_size), (0,0,0,0))
     iw, ih = img_no_bg.size
-    canvas.paste(img_no_bg, ((target_size - iw) // 2, (target_size - ih) // 2), img_no_bg)
+    canvas.paste(img_no_bg, ((target_size - iw)//2, (target_size - ih)//2), img_no_bg)
 
-    # OpenAI DALL·E 아웃페인팅 호출
     try:
         canvas.save(temp_canvas_path, "PNG")
         with open(temp_canvas_path, "rb") as fp:
@@ -125,76 +98,50 @@ def outpaint_image(input_path, user_prompt_kr, output_path, target_size=1024, ta
         if os.path.exists(temp_canvas_path):
             os.remove(temp_canvas_path)
 
-    # 최종 크롭
     final_img = gen_img
     if abs(target_ratio - 1.0) > 1e-6:
         if target_ratio > 1:
-            w, h = (target_size, int(target_size / target_ratio))
+            w, h = (target_size, int(target_size/target_ratio))
         else:
-            w, h = (int(target_size * target_ratio), target_size)
-        left, top = (target_size - w) // 2, (target_size - h) // 2
-        final_img = gen_img.crop((left, top, left + w, top + h))
+            w, h = (int(target_size*target_ratio), target_size)
+        left, top = (target_size - w)//2, (target_size - h)//2
+        final_img = gen_img.crop((left, top, left+w, top+h))
 
-    # 저장
     final_img.convert("RGB").save(output_path, "JPEG", quality=95)
-    print(f"✅ 최종 저장 완료 → {output_path}")
+    print(f"✅ 최종 저장 → {output_path}")
 
-
-# -----------------------------
-# 4) FastAPI 라우터
-# -----------------------------
 router = APIRouter()
 
 @router.post(
     "/v1/outpaint",
     status_code=204,
-    responses={
-        204: {"description": "Image saved successfully (no content)"},
-        400: {"description": "Bad request"},
-        500: {"description": "Internal server error"},
-        502: {"description": "Processing error"},
-    },
-)
+    responses={204: {"description": "saved (no content)"}})
 async def outpaint_endpoint(
-    input_image: UploadFile = File(..., description="이미지 파일(PNG/JPG)"),
-    user_prompt: str = Form(..., description="배경 컨셉 설명 (한국어 OK)"),
-    ratio: str = Form("1:1", description="예: 1:1, 4:5, 16:9"),
+    input_image: UploadFile = File(...),
+    user_prompt: str = Form(...),
+    ratio: str = Form("1:1"),
 ):
-    """
-    - 입력 저장: {IMG_DIR}/{N}_food.jpg
-    - 결과 저장: {IMG_DIR}/{N}_food_AI.jpg
-    - 응답은 본문 없이 204 No Content
-    """
-    _ensure_dir(IMG_DIR)
+    _ensure_dir(FOOD_DIR)
 
-    n = _next_index(IMG_DIR)
+    n = _next_food_index()
     base = f"{n}_food"
-    input_path = os.path.join(IMG_DIR, f"{base}.jpg")
-    output_path = os.path.join(IMG_DIR, f"{base}_AI.jpg")
+    input_path  = os.path.join(FOOD_DIR, f"{base}.jpg")
+    output_path = os.path.join(FOOD_DIR, f"{base}_AI.jpg")
 
-    # 원본 저장
     try:
         img = Image.open(input_image.file).convert("RGB")
         img.save(input_path, "JPEG", quality=95)
-        print(f"✅ 업로드 저장 완료 → {input_path}")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"업로드 이미지 저장 실패: {e}")
+        raise HTTPException(status_code=400, detail=f"업로드 저장 실패: {e}")
 
-    # 비율 파싱
     try:
         w, h = map(int, ratio.split(":"))
-        target_ratio = w / h
+        target_ratio = w/h
     except Exception:
         target_ratio = 1.0
 
-    # 아웃페인트 실행
-    try:
-        outpaint_image(input_path, user_prompt, output_path, target_size=1024, target_ratio=target_ratio)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"아웃페인트 실패: {e}")
-
+    outpaint_image(input_path, user_prompt, output_path, target_size=1024, target_ratio=target_ratio)
     if not os.path.exists(output_path):
-        raise HTTPException(status_code=502, detail="결과 파일이 생성되지 않았습니다.")
+        raise HTTPException(status_code=502, detail="결과 파일 생성 실패")
 
-    # 아무것도 반환하지 않음
     return Response(status_code=204)
