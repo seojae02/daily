@@ -47,7 +47,10 @@ def filepaths_to_inline_parts(paths: Optional[List[str]]) -> List[dict]:
         })
     return parts
 
-def build_promo_prompt(language: str, mood: str, store_name: str, store_description: Optional[str], location_text: Optional[str], latitude: Optional[float], longitude: Optional[float], variants: int) -> str:
+def build_promo_prompt(language: str, mood: str, store_name: str,
+                       store_description: Optional[str], location_text: Optional[str],
+                       latitude: Optional[float], longitude: Optional[float],
+                       variants: int) -> str:
     variants = min(max(variants, 1), 5)
     loc_bits = []
     if location_text:
@@ -152,6 +155,10 @@ def parse_ratio_and_size(ratio: Optional[str], base_size: Optional[int]) -> Tupl
     return target_width, target_height
 
 def format_body_with_newlines_and_images(text: str, image_urls: Optional[List[str]]) -> str:
+    """
+    문장, 개행기호('\\n'), 이미지 URL이 모두 '한 칸 공백'으로 구분되도록 출력.
+    예) "문장1 \\n https://.../food.jpg \\n 문장2 \\n https://.../store.jpg \\n"
+    """
     if not text:
         return ""
     s = str(text).strip()
@@ -161,15 +168,22 @@ def format_body_with_newlines_and_images(text: str, image_urls: Optional[List[st
     n = len(sentences)
     urls = [u for u in (image_urls or []) if u]
     m = len(urls)
+
     insert_map = {}
     if n > 0 and m > 0:
         for i, url in enumerate(urls):
-            pos = (i + 1) * (n + 1) // (m + 1)  # 1..n
+            pos = (i + 1) * (n + 1) // (m + 1)  # 균등 분산 위치(1..n)
             pos = min(max(1, pos), n - 1) if n > 1 else 1
             insert_map.setdefault(pos, []).append(url)
-    lines: List[str] = []
+
+    parts: List[str] = []
     for idx, sent in enumerate(sentences, start=1):
-        lines.append(sent)
+        parts.append(sent)          # 문장
+        parts.append("\\n")         # 개행 기호(문자)
         if idx in insert_map:
-            lines.extend(insert_map[idx])
-    return "\n ".join(lines)
+            for url in insert_map[idx]:
+                parts.append(url)   # 이미지 URL
+                parts.append("\\n") # 개행 기호(문자)
+
+    # 각 토큰을 한 칸으로 구분
+    return " ".join(parts).strip()
