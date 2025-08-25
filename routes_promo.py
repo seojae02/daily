@@ -50,7 +50,7 @@ def generate_promo(
     """
     - 본문 이미지: '가공 음식(food/N_food_AI.jpg)' + '가게 이미지(store/N_store_*.jpg)' 만 사용
     - 원본 음식(food/N_food.jpg)은 본문에 포함하지 않음
-    - 본문은 6~8문장 유도 (utils.build_promo_prompt 에서 유도)
+    - 본문은 6~8문장 유도
     """
     if debug == 1:
         demo_body = "디버그 응답입니다. 6~8줄 이상 문장 생성과 URL 삽입 포맷만 확인합니다!"
@@ -129,6 +129,7 @@ def generate_promo(
         if raw.lower().startswith("json"):
             raw = raw[4:].strip()
 
+    # 6) JSON 파싱 + 본문 포맷(문장, \n, 이미지 URL을 모두 공백으로 구분)
     try:
         parsed = json.loads(raw)
         if not isinstance(parsed, dict) or "variants" not in parsed:
