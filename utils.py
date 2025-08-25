@@ -172,4 +172,4 @@ def format_body_with_newlines_and_images(text: str, image_urls: Optional[List[st
         lines.append(sent)
         if idx in insert_map:
             lines.extend(insert_map[idx])
-    return "\n".join(lines)
+    return "\n ".join(lines)
